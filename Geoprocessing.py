@@ -6,6 +6,7 @@ from shapely.geometry import Point, LineString, Polygon
 import json
 import tempfile
 import os
+import zipfile
 
 def main():
     st.title("GeoSpatial File Viewer and Converter")
@@ -26,7 +27,7 @@ def main():
     Get started by uploading a file using the file uploader below!
     """)
     
-    uploaded_file = st.file_uploader("Choose a shapefile or GeoJSON file", type=["shp", "geojson"])
+    uploaded_file = st.file_uploader("Choose a shapefile (.zip) or GeoJSON file", type=["zip", "geojson"])
     
     if uploaded_file is not None:
         # Load and display the file
@@ -46,39 +47,58 @@ def main():
 def load_geodata(file):
     file_extension = file.name.split(".")[-1].lower()
     
-    if file_extension == "shp":
-        # For shapefiles, we need to handle multiple files
+    if file_extension == "zip":
+        # For zipped shapefiles
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Save the uploaded shapefile
-            file_path = os.path.join(tmpdir, file.name)
-            with open(file_path, "wb") as f:
-                f.write(file.getbuffer())
-            
-            # Check for other required files (.dbf, .shx)
-            required_extensions = ['.dbf', '.shx']
-            for ext in required_extensions:
-                required_file = st.file_uploader(f"Upload the {ext} file", type=[ext[1:]])
-                if required_file is None:
-                    st.error(f"Please upload the {ext} file associated with your shapefile.")
-                    return None
-                with open(os.path.join(tmpdir, file.name.replace('.shp', ext)), "wb") as f:
-                    f.write(required_file.getbuffer())
-            
-            # Read the shapefile
-            gdf = gpd.read_file(file_path)
+            with zipfile.ZipFile(file, 'r') as zip_ref:
+                zip_ref.extractall(tmpdir)
+            # Find the .shp file in the extracted contents
+            shp_files = [f for f in os.listdir(tmpdir) if f.endswith('.shp')]
+            if not shp_files:
+                st.error("No .shp file found in the uploaded zip.")
+                return None
+            shp_path = os.path.join(tmpdir, shp_files[0])
+            gdf = gpd.read_file(shp_path)
     elif file_extension == "geojson":
         # For GeoJSON, we can read directly from the uploaded file
         gdf = gpd.read_file(file)
     else:
-        st.error("Unsupported file format. Please upload a shapefile or GeoJSON file.")
+        st.error("Unsupported file format. Please upload a zipped shapefile or GeoJSON file.")
         return None
+    
+    # Set CRS to EPSG:4326 (WGS84) if it's not already set
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+    else:
+        gdf = gdf.to_crs("EPSG:4326")
     
     return gdf
 
 def display_map(gdf):
     st.subheader("Map View")
-    m = folium.Map(location=[gdf.geometry.centroid.y.mean(), gdf.geometry.centroid.x.mean()], zoom_start=10)
-    folium.GeoJson(gdf).add_to(m)
+    
+    # Calculate the center of the map
+    center_lat = gdf.geometry.centroid.y.mean()
+    center_lon = gdf.geometry.centroid.x.mean()
+    
+    # Create a map centered on the data
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+    
+    # Add the GeoDataFrame to the map
+    folium.GeoJson(
+        gdf.__geo_interface__,
+        style_function=lambda feature: {
+            'fillColor': 'blue',
+            'color': 'black',
+            'weight': 2,
+            'fillOpacity': 0.7,
+        }
+    ).add_to(m)
+    
+    # Fit the map to the bounds of the data
+    m.fit_bounds(m.get_bounds())
+    
+    # Display the map
     folium_static(m)
 
 def add_geometry(gdf):
@@ -99,7 +119,7 @@ def add_geometry(gdf):
         new_geometry = Polygon(coord_list)
     
     if st.button("Add Geometry"):
-        new_row = gpd.GeoDataFrame({"geometry": [new_geometry]}, crs=gdf.crs)
+        new_row = gpd.GeoDataFrame({"geometry": [new_geometry]}, crs="EPSG:4326")
         gdf = gdf.append(new_row, ignore_index=True)
         st.success("Geometry added successfully!")
         display_map(gdf)
@@ -120,7 +140,6 @@ def convert_and_download(gdf):
             tmp_shp = os.path.join(tmpdir, "converted.shp")
             gdf.to_file(tmp_shp, driver="ESRI Shapefile")
             # Create a zip file containing all shapefile components
-            import shutil
             shp_zip = shutil.make_archive(os.path.join(tmpdir, "converted_shapefile"), 'zip', tmpdir)
             with open(shp_zip, "rb") as f:
                 output = f.read()
