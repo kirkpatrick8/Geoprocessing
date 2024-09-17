@@ -225,7 +225,7 @@ def download_edited_file(gdf):
             label="Download Edited File",
             data=output,
             file_name=filename,
-            mime=type=mime_type
+            mime_type=mime_type  # This line was corrected
         )
     except Exception as e:
         st.error(f"An error occurred while preparing the file for download: {str(e)}")
