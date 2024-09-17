@@ -3,7 +3,7 @@ import geopandas as gpd
 import folium
 from streamlit_folium import folium_static
 from folium.plugins import Draw
-from shapely.geometry import shape
+from shapely.geometry import Point, LineString, Polygon, shape
 import json
 import tempfile
 import os
@@ -35,21 +35,22 @@ def main():
     
     if 'gdf' not in st.session_state:
         st.session_state.gdf = None
+    if 'new_features' not in st.session_state:
+        st.session_state.new_features = []
 
     if uploaded_file is not None:
         try:
             # Load and display the file
             st.session_state.gdf = load_geodata(uploaded_file)
             if st.session_state.gdf is not None:
-                display_map_with_draw(st.session_state.gdf)
+                st.session_state.gdf, st.session_state.new_features = display_map_with_draw(st.session_state.gdf)
                 
                 # Commit Changes button
                 if st.button("Commit Changes"):
-                    drawn_features = st.session_state.get('drawn_features', None)
-                    if drawn_features:
-                        st.session_state.gdf = commit_changes(st.session_state.gdf, drawn_features)
+                    if st.session_state.new_features:
+                        st.session_state.gdf = commit_changes(st.session_state.gdf, st.session_state.new_features)
                         st.success("Changes committed successfully!")
-                        st.session_state['drawn_features'] = None  # Clear drawn features after committing
+                        st.session_state.new_features = []  # Clear new features after committing
                     else:
                         st.warning("No changes to commit. Draw some geometries on the map first.")
 
@@ -135,41 +136,6 @@ def display_map_with_draw(gdf):
         )
         draw.add_to(m)
 
-        # Add custom JavaScript to capture drawn features
-        m.get_root().html.add_child(folium.Element("""
-        <script>
-        var drawnItems = new L.FeatureGroup();
-        map.addLayer(drawnItems);
-
-        map.on(L.Draw.Event.CREATED, function (event) {
-            var layer = event.layer;
-            drawnItems.addLayer(layer);
-            document.getElementById('drawn_data').value = JSON.stringify(drawnItems.toGeoJSON());
-        });
-
-        map.on('draw:edited', function (event) {
-            var layers = event.layers;
-            layers.eachLayer(function (layer) {
-                drawnItems.addLayer(layer);
-            });
-            document.getElementById('drawn_data').value = JSON.stringify(drawnItems.toGeoJSON());
-        });
-
-        map.on('draw:deleted', function (event) {
-            var layers = event.layers;
-            layers.eachLayer(function (layer) {
-                drawnItems.removeLayer(layer);
-            });
-            document.getElementById('drawn_data').value = JSON.stringify(drawnItems.toGeoJSON());
-        });
-        </script>
-        """))
-
-        # Add a hidden input to store drawn features
-        m.get_root().html.add_child(folium.Element(
-            '<input type="hidden" id="drawn_data" value="{}">'
-        ))
-
         # Fit the map to the bounds of the data
         m.fit_bounds(m.get_bounds())
         
@@ -177,33 +143,19 @@ def display_map_with_draw(gdf):
         st.write("Displaying map...")
         folium_static(m)
         
-        # Retrieve drawn features
-        drawn_data = st.components.v1.html(
-            """
-            <script>
-            var drawnDataElement = document.getElementById('drawn_data');
-            if (drawnDataElement) {
-                var drawnData = drawnDataElement.value;
-                if (drawnData) {
-                    window.parent.postMessage({type: "drawn_data", data: drawnData}, "*");
-                }
-            }
-            </script>
-            """,
-            height=0,
-        )
-        
-        # Store drawn features in session state
-        if drawn_data:
-            st.session_state['drawn_features'] = json.loads(drawn_data)
+        # For now, we'll use a placeholder for new features
+        # In a production app, you'd need to implement a way to capture drawn features
+        new_features = []
+        st.info("Drawing features is currently not fully implemented. This is a placeholder for future functionality.")
         
     except Exception as e:
         st.error(f"An error occurred while displaying the map: {str(e)}")
         st.error("Please try refreshing the page or contact support if the issue persists.")
+    
+    return gdf, new_features
 
-def commit_changes(gdf, drawn_features):
-    if drawn_features and 'features' in drawn_features:
-        new_features = drawn_features['features']
+def commit_changes(gdf, new_features):
+    if new_features:
         st.write(f"Committing {len(new_features)} new features.")
         for feature in new_features:
             try:
@@ -226,6 +178,7 @@ def download_edited_file(gdf):
         if file_format == "GeoJSON":
             output = gdf.to_json()
             filename = "edited_file.geojson"
+            mime_type = "application/json"
         else:  # Shapefile
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_shp = os.path.join(tmpdir, "edited_file.shp")
@@ -234,11 +187,13 @@ def download_edited_file(gdf):
                 with open(shp_zip, "rb") as f:
                     output = f.read()
             filename = "edited_file_shapefile.zip"
+            mime_type = "application/zip"
         
         st.download_button(
             label="Download Edited File",
             data=output,
-            file_name=filename
+            file_name=filename,
+            mime=mime_type
         )
     except Exception as e:
         st.error(f"An error occurred while preparing the file for download: {str(e)}")
@@ -252,6 +207,7 @@ def convert_and_download(gdf):
         if output_format == "GeoJSON":
             output = gdf.to_json()
             filename = "converted.geojson"
+            mime_type = "application/json"
         else:  # Shapefile
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_shp = os.path.join(tmpdir, "converted.shp")
@@ -260,11 +216,13 @@ def convert_and_download(gdf):
                 with open(shp_zip, "rb") as f:
                     output = f.read()
             filename = "converted_shapefile.zip"
+            mime_type = "application/zip"
         
         st.download_button(
             label="Download Converted File",
             data=output,
-            file_name=filename
+            file_name=filename,
+            mime=mime_type
         )
     except Exception as e:
         st.error(f"An error occurred while converting the file: {str(e)}")
