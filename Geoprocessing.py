@@ -154,7 +154,79 @@ def display_map_with_draw(gdf):
     
     return gdf, new_features
 
-# The rest of the functions (commit_changes, download_edited_file, convert_and_download) remain the same
+def commit_changes(gdf, new_features):
+    if new_features:
+        st.write(f"Committing {len(new_features)} new features.")
+        for feature in new_features:
+            try:
+                geom = shape(feature['geometry'])
+                new_row = gpd.GeoDataFrame({'geometry': [geom]}, crs="EPSG:4326")
+                gdf = gpd.GeoDataFrame(pd.concat([gdf, new_row], ignore_index=True), crs=gdf.crs)
+                st.success(f"Added new {geom.geom_type}")
+            except Exception as e:
+                st.error(f"Error adding feature: {str(e)}")
+        st.write(f"GeoDataFrame now has {len(gdf)} features.")
+    else:
+        st.warning("No new features to commit.")
+    return gdf
+
+def download_edited_file(gdf):
+    st.subheader("Download Edited File")
+    file_format = st.selectbox("Select file format for download", ["GeoJSON", "Shapefile"])
+    
+    try:
+        if file_format == "GeoJSON":
+            output = gdf.to_json()
+            filename = "edited_file.geojson"
+            mime_type = "application/json"
+        else:  # Shapefile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_shp = os.path.join(tmpdir, "edited_file.shp")
+                gdf.to_file(tmp_shp, driver="ESRI Shapefile")
+                shp_zip = shutil.make_archive(os.path.join(tmpdir, "edited_file_shapefile"), 'zip', tmpdir)
+                with open(shp_zip, "rb") as f:
+                    output = f.read()
+            filename = "edited_file_shapefile.zip"
+            mime_type = "application/zip"
+        
+        st.download_button(
+            label="Download Edited File",
+            data=output,
+            file_name=filename,
+            mime=mime_type
+        )
+    except Exception as e:
+        st.error(f"An error occurred while preparing the file for download: {str(e)}")
+        st.error("Please try again or contact support if the issue persists.")
+
+def convert_and_download(gdf):
+    st.subheader("Convert and Download")
+    output_format = st.selectbox("Select output format for conversion", ["GeoJSON", "Shapefile"])
+    
+    try:
+        if output_format == "GeoJSON":
+            output = gdf.to_json()
+            filename = "converted.geojson"
+            mime_type = "application/json"
+        else:  # Shapefile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_shp = os.path.join(tmpdir, "converted.shp")
+                gdf.to_file(tmp_shp, driver="ESRI Shapefile")
+                shp_zip = shutil.make_archive(os.path.join(tmpdir, "converted_shapefile"), 'zip', tmpdir)
+                with open(shp_zip, "rb") as f:
+                    output = f.read()
+            filename = "converted_shapefile.zip"
+            mime_type = "application/zip"
+        
+        st.download_button(
+            label="Download Converted File",
+            data=output,
+            file_name=filename,
+            mime=mime_type
+        )
+    except Exception as e:
+        st.error(f"An error occurred while converting the file: {str(e)}")
+        st.error("Please try again or contact support if the issue persists.")
 
 if __name__ == "__main__":
     main()
