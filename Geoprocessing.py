@@ -17,29 +17,45 @@ def main():
     ## Introduction
     This Streamlit application allows you to view, edit, and convert shapefiles and GeoJSON files. 
     You can upload your files, view them on an interactive map, add new geometries by drawing on the map, 
-    and convert between shapefile and GeoJSON formats.
+    commit your changes, and download the edited file.
     
     ### Features:
     - Upload and view shapefiles or GeoJSON files
     - Display geometries on an interactive map
     - Draw new points, lines, or polygons directly on the map
+    - Commit changes made to the data
+    - Download the edited file
     - Convert between shapefile and GeoJSON formats
-    - Download the modified or converted files
     
     Get started by uploading a file using the file uploader below!
     """)
     
     uploaded_file = st.file_uploader("Choose a shapefile (.zip) or GeoJSON file", type=["zip", "geojson"])
     
+    if 'gdf' not in st.session_state:
+        st.session_state.gdf = None
+    if 'new_features' not in st.session_state:
+        st.session_state.new_features = []
+
     if uploaded_file is not None:
         try:
             # Load and display the file
-            gdf = load_geodata(uploaded_file)
-            if gdf is not None:
-                gdf = display_map_with_draw(gdf)
+            st.session_state.gdf = load_geodata(uploaded_file)
+            if st.session_state.gdf is not None:
+                st.session_state.gdf, st.session_state.new_features = display_map_with_draw(st.session_state.gdf)
+                
+                # Commit Changes button
+                if st.button("Commit Changes"):
+                    st.session_state.gdf = commit_changes(st.session_state.gdf, st.session_state.new_features)
+                    st.success("Changes committed successfully!")
+                    st.session_state.new_features = []  # Clear new features after committing
+
+                # Download Edited File button
+                if st.session_state.gdf is not None:
+                    download_edited_file(st.session_state.gdf)
                 
                 # Convert and download
-                convert_and_download(gdf)
+                convert_and_download(st.session_state.gdf)
         except Exception as e:
             st.error(f"An error occurred while processing the file: {str(e)}")
             st.error("Please try uploading the file again or contact support if the issue persists.")
@@ -120,27 +136,59 @@ def display_map_with_draw(gdf):
         map_data = folium_static(m)
         
         # Check for new geometries
+        new_features = []
         if isinstance(map_data, dict) and 'all_drawings' in map_data:
             new_features = map_data['all_drawings']
             if new_features:
-                for feature in new_features:
-                    geom = shape(feature['geometry'])
-                    new_row = gpd.GeoDataFrame({'geometry': [geom]}, crs="EPSG:4326")
-                    gdf = gdf.append(new_row, ignore_index=True)
-                st.success(f"Added {len(new_features)} new geometries to the data.")
-                # Redisplay the map with new geometries
-                return display_map_with_draw(gdf)
+                st.info(f"You've drawn {len(new_features)} new geometries. Click 'Commit Changes' to add them to the data.")
         else:
             st.info("No new geometries were added. You can draw on the map to add new features.")
     except Exception as e:
         st.error(f"An error occurred while displaying the map: {str(e)}")
         st.error("Please try refreshing the page or contact support if the issue persists.")
     
+    return gdf, new_features
+
+def commit_changes(gdf, new_features):
+    if new_features:
+        for feature in new_features:
+            geom = shape(feature['geometry'])
+            new_row = gpd.GeoDataFrame({'geometry': [geom]}, crs="EPSG:4326")
+            gdf = gdf.append(new_row, ignore_index=True)
     return gdf
+
+def download_edited_file(gdf):
+    st.subheader("Download Edited File")
+    file_format = st.selectbox("Select file format for download", ["GeoJSON", "Shapefile"])
+    
+    try:
+        if file_format == "GeoJSON":
+            output = gdf.to_json()
+            filename = "edited_file.geojson"
+            mime_type = "application/json"
+        else:  # Shapefile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_shp = os.path.join(tmpdir, "edited_file.shp")
+                gdf.to_file(tmp_shp, driver="ESRI Shapefile")
+                shp_zip = shutil.make_archive(os.path.join(tmpdir, "edited_file_shapefile"), 'zip', tmpdir)
+                with open(shp_zip, "rb") as f:
+                    output = f.read()
+            filename = "edited_file_shapefile.zip"
+            mime_type = "application/zip"
+        
+        st.download_button(
+            label="Download Edited File",
+            data=output,
+            file_name=filename,
+            mime=mime_type
+        )
+    except Exception as e:
+        st.error(f"An error occurred while preparing the file for download: {str(e)}")
+        st.error("Please try again or contact support if the issue persists.")
 
 def convert_and_download(gdf):
     st.subheader("Convert and Download")
-    output_format = st.selectbox("Select output format", ["GeoJSON", "Shapefile"])
+    output_format = st.selectbox("Select output format for conversion", ["GeoJSON", "Shapefile"])
     
     try:
         if output_format == "GeoJSON":
@@ -148,11 +196,9 @@ def convert_and_download(gdf):
             filename = "converted.geojson"
             mime_type = "application/json"
         else:  # Shapefile
-            # For shapefile, we need to create a zip file containing all components
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_shp = os.path.join(tmpdir, "converted.shp")
                 gdf.to_file(tmp_shp, driver="ESRI Shapefile")
-                # Create a zip file containing all shapefile components
                 shp_zip = shutil.make_archive(os.path.join(tmpdir, "converted_shapefile"), 'zip', tmpdir)
                 with open(shp_zip, "rb") as f:
                     output = f.read()
@@ -160,7 +206,7 @@ def convert_and_download(gdf):
             mime_type = "application/zip"
         
         st.download_button(
-            label="Download converted file",
+            label="Download Converted File",
             data=output,
             file_name=filename,
             mime=mime_type
