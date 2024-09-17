@@ -119,7 +119,7 @@ def display_map_with_draw(gdf):
             }
         ).add_to(m)
         
-        # Add draw control
+        # Add draw control with a callback
         draw = Draw(
             draw_options={
                 'polyline': True,
@@ -132,35 +132,45 @@ def display_map_with_draw(gdf):
             edit_options={'edit': False}
         )
         draw.add_to(m)
+
+        # Add a callback to capture drawn features
+        callback = """
+        function (e) {
+            var data = draw.getAll();
+            document.getElementById('drawn_features').value = JSON.stringify(data);
+        }
+        """
+        draw.add_draw_handler(callback)
+
+        # Add a hidden div to store drawn features
+        m.get_root().html.add_child(folium.Element(
+            """
+            <textarea id="drawn_features" style="display: none;"></textarea>
+            """
+        ))
         
         # Fit the map to the bounds of the data
         m.fit_bounds(m.get_bounds())
         
         # Display the map
         st.write("Displaying map...")
-        map_data = folium_static(m)
+        folium_static(m)
         
-        # Debug information
-        st.write("Debug: Map displayed successfully")
-        st.write("Debug: Map data type:", type(map_data))
-        if map_data is not None:
-            st.write("Debug: Map data is not None")
-            if isinstance(map_data, dict):
-                st.write("Debug: Map data keys:", map_data.keys())
-            else:
-                st.write("Debug: Map data is not a dictionary")
-        else:
-            st.write("Debug: Map data is None")
-        
-        # Check for new geometries
+        # Retrieve drawn features
+        drawn_features = st.empty()
         new_features = []
-        if isinstance(map_data, dict) and 'all_drawings' in map_data:
-            new_features = map_data['all_drawings']
-            if new_features:
-                st.info(f"You've drawn {len(new_features)} new geometries. Click 'Commit Changes' to add them to the data.")
-                st.write("Debug: New features:", new_features)
+        if drawn_features:
+            features_json = drawn_features.value
+            if features_json:
+                features_data = json.loads(features_json)
+                new_features = features_data.get('features', [])
+                if new_features:
+                    st.info(f"You've drawn {len(new_features)} new geometries. Click 'Commit Changes' to add them to the data.")
+                    st.write("Debug: New features:", new_features)
+                else:
+                    st.info("No new geometries were detected. Try drawing on the map again.")
             else:
-                st.info("No new geometries were detected. Try drawing on the map again.")
+                st.warning("No drawing data detected. Please try drawing on the map.")
         else:
             st.warning("No drawing data detected. Please try drawing on the map.")
         
