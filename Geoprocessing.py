@@ -100,59 +100,73 @@ def load_geodata(file):
 def display_map_with_draw(gdf):
     st.subheader("Map View")
     
-    # Calculate the center of the map
-    center_lat = gdf.geometry.centroid.y.mean()
-    center_lon = gdf.geometry.centroid.x.mean()
-    
-    # Create a map centered on the data
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
-    
-    # Add the GeoDataFrame to the map
-    folium.GeoJson(
-        gdf.__geo_interface__,
-        style_function=lambda feature: {
-            'fillColor': 'blue',
-            'color': 'black',
-            'weight': 2,
-            'fillOpacity': 0.7,
-        }
-    ).add_to(m)
-    
-    # Add draw control
-    draw = Draw(
-        draw_options={
-            'polyline': True,
-            'rectangle': True,
-            'polygon': True,
-            'circle': False,
-            'marker': True,
-            'circlemarker': False
-        },
-        edit_options={'edit': False}
-    )
-    draw.add_to(m)
-    
-    # Fit the map to the bounds of the data
-    m.fit_bounds(m.get_bounds())
-    
-    # Display the map
-    map_data = folium_static(m)
-    
-    # Debug information
-    st.write("Debug: Map data type:", type(map_data))
-    st.write("Debug: Map data content:", map_data)
-    
-    # Check for new geometries
-    new_features = []
-    if isinstance(map_data, dict) and 'all_drawings' in map_data:
-        new_features = map_data['all_drawings']
-        if new_features:
-            st.info(f"You've drawn {len(new_features)} new geometries. Click 'Commit Changes' to add them to the data.")
-            st.write("Debug: New features:", new_features)
+    try:
+        # Calculate the center of the map
+        center_lat = gdf.geometry.centroid.y.mean()
+        center_lon = gdf.geometry.centroid.x.mean()
+        
+        # Create a map centered on the data
+        m = folium.Map(location=[center_lat, center_lon], zoom_start=10)
+        
+        # Add the GeoDataFrame to the map
+        folium.GeoJson(
+            gdf.__geo_interface__,
+            style_function=lambda feature: {
+                'fillColor': 'blue',
+                'color': 'black',
+                'weight': 2,
+                'fillOpacity': 0.7,
+            }
+        ).add_to(m)
+        
+        # Add draw control
+        draw = Draw(
+            draw_options={
+                'polyline': True,
+                'rectangle': True,
+                'polygon': True,
+                'circle': False,
+                'marker': True,
+                'circlemarker': False
+            },
+            edit_options={'edit': False}
+        )
+        draw.add_to(m)
+        
+        # Fit the map to the bounds of the data
+        m.fit_bounds(m.get_bounds())
+        
+        # Display the map
+        st.write("Displaying map...")
+        map_data = folium_static(m)
+        
+        # Debug information
+        st.write("Debug: Map displayed successfully")
+        st.write("Debug: Map data type:", type(map_data))
+        if map_data is not None:
+            st.write("Debug: Map data is not None")
+            if isinstance(map_data, dict):
+                st.write("Debug: Map data keys:", map_data.keys())
+            else:
+                st.write("Debug: Map data is not a dictionary")
         else:
-            st.info("No new geometries were detected. Try drawing on the map again.")
-    else:
-        st.warning("No drawing data detected. Please try drawing on the map.")
+            st.write("Debug: Map data is None")
+        
+        # Check for new geometries
+        new_features = []
+        if isinstance(map_data, dict) and 'all_drawings' in map_data:
+            new_features = map_data['all_drawings']
+            if new_features:
+                st.info(f"You've drawn {len(new_features)} new geometries. Click 'Commit Changes' to add them to the data.")
+                st.write("Debug: New features:", new_features)
+            else:
+                st.info("No new geometries were detected. Try drawing on the map again.")
+        else:
+            st.warning("No drawing data detected. Please try drawing on the map.")
+        
+    except Exception as e:
+        st.error(f"An error occurred while displaying the map: {str(e)}")
+        st.error("Please try refreshing the page or contact support if the issue persists.")
     
     return gdf, new_features
 
