@@ -2,25 +2,27 @@ import streamlit as st
 import geopandas as gpd
 import folium
 from streamlit_folium import folium_static
-from shapely.geometry import Point, LineString, Polygon
+from folium.plugins import Draw
+from shapely.geometry import Point, LineString, Polygon, shape
 import json
 import tempfile
 import os
 import zipfile
+import shutil
 
 def main():
-    st.title("GeoSpatial File Viewer and Converter")
+    st.title("GeoSpatial File Viewer and Editor")
     
     st.markdown("""
     ## Introduction
     This Streamlit application allows you to view, edit, and convert shapefiles and GeoJSON files. 
-    You can upload your files, view them on an interactive map, add new geometries, and convert between 
-    shapefile and GeoJSON formats.
+    You can upload your files, view them on an interactive map, add new geometries by drawing on the map, 
+    and convert between shapefile and GeoJSON formats.
     
     ### Features:
     - Upload and view shapefiles or GeoJSON files
     - Display geometries on an interactive map
-    - Add new points, lines, or polygons
+    - Draw new points, lines, or polygons directly on the map
     - Convert between shapefile and GeoJSON formats
     - Download the modified or converted files
     
@@ -33,10 +35,7 @@ def main():
         # Load and display the file
         gdf = load_geodata(uploaded_file)
         if gdf is not None:
-            display_map(gdf)
-            
-            # Add geometry
-            gdf = add_geometry(gdf)
+            gdf = display_map_with_draw(gdf)
             
             # Convert and download
             convert_and_download(gdf)
@@ -74,7 +73,7 @@ def load_geodata(file):
     
     return gdf
 
-def display_map(gdf):
+def display_map_with_draw(gdf):
     st.subheader("Map View")
     
     # Calculate the center of the map
@@ -95,34 +94,37 @@ def display_map(gdf):
         }
     ).add_to(m)
     
+    # Add draw control
+    draw = Draw(
+        draw_options={
+            'polyline': True,
+            'rectangle': True,
+            'polygon': True,
+            'circle': False,
+            'marker': True,
+            'circlemarker': False
+        },
+        edit_options={'edit': False}
+    )
+    draw.add_to(m)
+    
     # Fit the map to the bounds of the data
     m.fit_bounds(m.get_bounds())
     
     # Display the map
-    folium_static(m)
-
-def add_geometry(gdf):
-    st.subheader("Add Geometry")
-    geometry_type = st.selectbox("Select geometry type to add", ["Point", "LineString", "Polygon"])
+    map_data = folium_static(m)
     
-    if geometry_type == "Point":
-        lat = st.number_input("Latitude", value=0.0)
-        lon = st.number_input("Longitude", value=0.0)
-        new_geometry = Point(lon, lat)
-    elif geometry_type == "LineString":
-        coords = st.text_area("Enter coordinates (lon,lat) separated by semicolons", "0,0; 1,1; 2,2")
-        coord_list = [tuple(map(float, coord.split(","))) for coord in coords.split(";")]
-        new_geometry = LineString(coord_list)
-    elif geometry_type == "Polygon":
-        coords = st.text_area("Enter coordinates (lon,lat) separated by semicolons", "0,0; 0,1; 1,1; 1,0; 0,0")
-        coord_list = [tuple(map(float, coord.split(","))) for coord in coords.split(";")]
-        new_geometry = Polygon(coord_list)
-    
-    if st.button("Add Geometry"):
-        new_row = gpd.GeoDataFrame({"geometry": [new_geometry]}, crs="EPSG:4326")
-        gdf = gdf.append(new_row, ignore_index=True)
-        st.success("Geometry added successfully!")
-        display_map(gdf)
+    # Check for new geometries
+    if map_data:
+        new_features = map_data.get('all_drawings', [])
+        if new_features:
+            for feature in new_features:
+                geom = shape(feature['geometry'])
+                new_row = gpd.GeoDataFrame({'geometry': [geom]}, crs="EPSG:4326")
+                gdf = gdf.append(new_row, ignore_index=True)
+            st.success(f"Added {len(new_features)} new geometries to the data.")
+            # Redisplay the map with new geometries
+            display_map_with_draw(gdf)
     
     return gdf
 
