@@ -32,13 +32,17 @@ def main():
     uploaded_file = st.file_uploader("Choose a shapefile (.zip) or GeoJSON file", type=["zip", "geojson"])
     
     if uploaded_file is not None:
-        # Load and display the file
-        gdf = load_geodata(uploaded_file)
-        if gdf is not None:
-            gdf = display_map_with_draw(gdf)
-            
-            # Convert and download
-            convert_and_download(gdf)
+        try:
+            # Load and display the file
+            gdf = load_geodata(uploaded_file)
+            if gdf is not None:
+                gdf = display_map_with_draw(gdf)
+                
+                # Convert and download
+                convert_and_download(gdf)
+        except Exception as e:
+            st.error(f"An error occurred while processing the file: {str(e)}")
+            st.error("Please try uploading the file again or contact support if the issue persists.")
     
     st.markdown("---")
     st.markdown("Made by [mark.kirkpatrick@aecom.com](mailto:mark.kirkpatrick@aecom.com)")
@@ -112,19 +116,25 @@ def display_map_with_draw(gdf):
     m.fit_bounds(m.get_bounds())
     
     # Display the map
-    map_data = folium_static(m)
-    
-    # Check for new geometries
-    if map_data:
-        new_features = map_data.get('all_drawings', [])
-        if new_features:
-            for feature in new_features:
-                geom = shape(feature['geometry'])
-                new_row = gpd.GeoDataFrame({'geometry': [geom]}, crs="EPSG:4326")
-                gdf = gdf.append(new_row, ignore_index=True)
-            st.success(f"Added {len(new_features)} new geometries to the data.")
-            # Redisplay the map with new geometries
-            display_map_with_draw(gdf)
+    try:
+        map_data = folium_static(m)
+        
+        # Check for new geometries
+        if isinstance(map_data, dict) and 'all_drawings' in map_data:
+            new_features = map_data['all_drawings']
+            if new_features:
+                for feature in new_features:
+                    geom = shape(feature['geometry'])
+                    new_row = gpd.GeoDataFrame({'geometry': [geom]}, crs="EPSG:4326")
+                    gdf = gdf.append(new_row, ignore_index=True)
+                st.success(f"Added {len(new_features)} new geometries to the data.")
+                # Redisplay the map with new geometries
+                return display_map_with_draw(gdf)
+        else:
+            st.info("No new geometries were added. You can draw on the map to add new features.")
+    except Exception as e:
+        st.error(f"An error occurred while displaying the map: {str(e)}")
+        st.error("Please try refreshing the page or contact support if the issue persists.")
     
     return gdf
 
@@ -132,28 +142,32 @@ def convert_and_download(gdf):
     st.subheader("Convert and Download")
     output_format = st.selectbox("Select output format", ["GeoJSON", "Shapefile"])
     
-    if output_format == "GeoJSON":
-        output = gdf.to_json()
-        filename = "converted.geojson"
-        mime_type = "application/json"
-    else:  # Shapefile
-        # For shapefile, we need to create a zip file containing all components
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_shp = os.path.join(tmpdir, "converted.shp")
-            gdf.to_file(tmp_shp, driver="ESRI Shapefile")
-            # Create a zip file containing all shapefile components
-            shp_zip = shutil.make_archive(os.path.join(tmpdir, "converted_shapefile"), 'zip', tmpdir)
-            with open(shp_zip, "rb") as f:
-                output = f.read()
-        filename = "converted_shapefile.zip"
-        mime_type = "application/zip"
-    
-    st.download_button(
-        label="Download converted file",
-        data=output,
-        file_name=filename,
-        mime=mime_type
-    )
+    try:
+        if output_format == "GeoJSON":
+            output = gdf.to_json()
+            filename = "converted.geojson"
+            mime_type = "application/json"
+        else:  # Shapefile
+            # For shapefile, we need to create a zip file containing all components
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_shp = os.path.join(tmpdir, "converted.shp")
+                gdf.to_file(tmp_shp, driver="ESRI Shapefile")
+                # Create a zip file containing all shapefile components
+                shp_zip = shutil.make_archive(os.path.join(tmpdir, "converted_shapefile"), 'zip', tmpdir)
+                with open(shp_zip, "rb") as f:
+                    output = f.read()
+            filename = "converted_shapefile.zip"
+            mime_type = "application/zip"
+        
+        st.download_button(
+            label="Download converted file",
+            data=output,
+            file_name=filename,
+            mime=mime_type
+        )
+    except Exception as e:
+        st.error(f"An error occurred while converting the file: {str(e)}")
+        st.error("Please try again or contact support if the issue persists.")
 
 if __name__ == "__main__":
     main()
