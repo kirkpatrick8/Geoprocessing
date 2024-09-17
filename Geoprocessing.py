@@ -4,6 +4,8 @@ import folium
 from streamlit_folium import folium_static
 from shapely.geometry import Point, LineString, Polygon
 import json
+import tempfile
+import os
 
 def main():
     st.title("GeoSpatial File Viewer and Converter")
@@ -21,35 +23,56 @@ def main():
     - Convert between shapefile and GeoJSON formats
     - Download the modified or converted files
     
-    Get started by uploading a file using the sidebar!
+    Get started by uploading a file using the file uploader below!
     """)
     
-    st.sidebar.markdown("## Upload Files")
-    uploaded_file = st.sidebar.file_uploader("Choose a shapefile or GeoJSON file", type=["shp", "geojson"])
+    uploaded_file = st.file_uploader("Choose a shapefile or GeoJSON file", type=["shp", "geojson"])
     
     if uploaded_file is not None:
         # Load and display the file
         gdf = load_geodata(uploaded_file)
-        display_map(gdf)
-        
-        # Add geometry
-        add_geometry(gdf)
-        
-        # Convert and download
-        convert_and_download(gdf)
+        if gdf is not None:
+            display_map(gdf)
+            
+            # Add geometry
+            gdf = add_geometry(gdf)
+            
+            # Convert and download
+            convert_and_download(gdf)
     
     st.markdown("---")
     st.markdown("Made by [mark.kirkpatrick@aecom.com](mailto:mark.kirkpatrick@aecom.com)")
 
 def load_geodata(file):
     file_extension = file.name.split(".")[-1].lower()
+    
     if file_extension == "shp":
-        gdf = gpd.read_file(file)
+        # For shapefiles, we need to handle multiple files
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Save the uploaded shapefile
+            file_path = os.path.join(tmpdir, file.name)
+            with open(file_path, "wb") as f:
+                f.write(file.getbuffer())
+            
+            # Check for other required files (.dbf, .shx)
+            required_extensions = ['.dbf', '.shx']
+            for ext in required_extensions:
+                required_file = st.file_uploader(f"Upload the {ext} file", type=[ext[1:]])
+                if required_file is None:
+                    st.error(f"Please upload the {ext} file associated with your shapefile.")
+                    return None
+                with open(os.path.join(tmpdir, file.name.replace('.shp', ext)), "wb") as f:
+                    f.write(required_file.getbuffer())
+            
+            # Read the shapefile
+            gdf = gpd.read_file(file_path)
     elif file_extension == "geojson":
+        # For GeoJSON, we can read directly from the uploaded file
         gdf = gpd.read_file(file)
     else:
         st.error("Unsupported file format. Please upload a shapefile or GeoJSON file.")
         return None
+    
     return gdf
 
 def display_map(gdf):
@@ -80,6 +103,8 @@ def add_geometry(gdf):
         gdf = gdf.append(new_row, ignore_index=True)
         st.success("Geometry added successfully!")
         display_map(gdf)
+    
+    return gdf
 
 def convert_and_download(gdf):
     st.subheader("Convert and Download")
@@ -90,9 +115,17 @@ def convert_and_download(gdf):
         filename = "converted.geojson"
         mime_type = "application/json"
     else:  # Shapefile
-        output = gdf.to_json()  # Placeholder, as we can't directly create a shapefile here
-        filename = "converted.shp"
-        mime_type = "application/octet-stream"
+        # For shapefile, we need to create a zip file containing all components
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_shp = os.path.join(tmpdir, "converted.shp")
+            gdf.to_file(tmp_shp, driver="ESRI Shapefile")
+            # Create a zip file containing all shapefile components
+            import shutil
+            shp_zip = shutil.make_archive(os.path.join(tmpdir, "converted_shapefile"), 'zip', tmpdir)
+            with open(shp_zip, "rb") as f:
+                output = f.read()
+        filename = "converted_shapefile.zip"
+        mime_type = "application/zip"
     
     st.download_button(
         label="Download converted file",
