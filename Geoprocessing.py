@@ -9,6 +9,7 @@ import tempfile
 import os
 import zipfile
 import shutil
+import pandas as pd
 
 def main():
     st.title("GeoSpatial File Viewer and Editor")
@@ -46,9 +47,12 @@ def main():
                 
                 # Commit Changes button
                 if st.button("Commit Changes"):
-                    st.session_state.gdf = commit_changes(st.session_state.gdf, st.session_state.new_features)
-                    st.success("Changes committed successfully!")
-                    st.session_state.new_features = []  # Clear new features after committing
+                    if st.session_state.new_features:
+                        st.session_state.gdf = commit_changes(st.session_state.gdf, st.session_state.new_features)
+                        st.success("Changes committed successfully!")
+                        st.session_state.new_features = []  # Clear new features after committing
+                    else:
+                        st.warning("No changes to commit. Draw some geometries on the map first.")
 
                 # Download Edited File button
                 if st.session_state.gdf is not None:
@@ -132,29 +136,40 @@ def display_map_with_draw(gdf):
     m.fit_bounds(m.get_bounds())
     
     # Display the map
-    try:
-        map_data = folium_static(m)
-        
-        # Check for new geometries
-        new_features = []
-        if isinstance(map_data, dict) and 'all_drawings' in map_data:
-            new_features = map_data['all_drawings']
-            if new_features:
-                st.info(f"You've drawn {len(new_features)} new geometries. Click 'Commit Changes' to add them to the data.")
+    map_data = folium_static(m)
+    
+    # Debug information
+    st.write("Debug: Map data type:", type(map_data))
+    st.write("Debug: Map data content:", map_data)
+    
+    # Check for new geometries
+    new_features = []
+    if isinstance(map_data, dict) and 'all_drawings' in map_data:
+        new_features = map_data['all_drawings']
+        if new_features:
+            st.info(f"You've drawn {len(new_features)} new geometries. Click 'Commit Changes' to add them to the data.")
+            st.write("Debug: New features:", new_features)
         else:
-            st.info("No new geometries were added. You can draw on the map to add new features.")
-    except Exception as e:
-        st.error(f"An error occurred while displaying the map: {str(e)}")
-        st.error("Please try refreshing the page or contact support if the issue persists.")
+            st.info("No new geometries were detected. Try drawing on the map again.")
+    else:
+        st.warning("No drawing data detected. Please try drawing on the map.")
     
     return gdf, new_features
 
 def commit_changes(gdf, new_features):
     if new_features:
+        st.write(f"Committing {len(new_features)} new features.")
         for feature in new_features:
-            geom = shape(feature['geometry'])
-            new_row = gpd.GeoDataFrame({'geometry': [geom]}, crs="EPSG:4326")
-            gdf = gdf.append(new_row, ignore_index=True)
+            try:
+                geom = shape(feature['geometry'])
+                new_row = gpd.GeoDataFrame({'geometry': [geom]}, crs="EPSG:4326")
+                gdf = gpd.GeoDataFrame(pd.concat([gdf, new_row], ignore_index=True), crs=gdf.crs)
+                st.success(f"Added new {geom.geom_type}")
+            except Exception as e:
+                st.error(f"Error adding feature: {str(e)}")
+        st.write(f"GeoDataFrame now has {len(gdf)} features.")
+    else:
+        st.warning("No new features to commit.")
     return gdf
 
 def download_edited_file(gdf):
