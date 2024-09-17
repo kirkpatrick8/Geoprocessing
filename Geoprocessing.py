@@ -41,13 +41,15 @@ def main():
             # Load and display the file
             st.session_state.gdf = load_geodata(uploaded_file)
             if st.session_state.gdf is not None:
-                draw_data = display_map_with_draw(st.session_state.gdf)
+                display_map_with_draw(st.session_state.gdf)
                 
                 # Commit Changes button
                 if st.button("Commit Changes"):
-                    if draw_data:
-                        st.session_state.gdf = commit_changes(st.session_state.gdf, draw_data)
+                    drawn_features = st.session_state.get('drawn_features', None)
+                    if drawn_features:
+                        st.session_state.gdf = commit_changes(st.session_state.gdf, drawn_features)
                         st.success("Changes committed successfully!")
+                        st.session_state['drawn_features'] = None  # Clear drawn features after committing
                     else:
                         st.warning("No changes to commit. Draw some geometries on the map first.")
 
@@ -176,18 +178,32 @@ def display_map_with_draw(gdf):
         folium_static(m)
         
         # Retrieve drawn features
-        draw_data = st.empty()
+        drawn_data = st.components.v1.html(
+            """
+            <script>
+            var drawnDataElement = document.getElementById('drawn_data');
+            if (drawnDataElement) {
+                var drawnData = drawnDataElement.value;
+                if (drawnData) {
+                    window.parent.postMessage({type: "drawn_data", data: drawnData}, "*");
+                }
+            }
+            </script>
+            """,
+            height=0,
+        )
+        
+        # Store drawn features in session state
+        if drawn_data:
+            st.session_state['drawn_features'] = json.loads(drawn_data)
         
     except Exception as e:
         st.error(f"An error occurred while displaying the map: {str(e)}")
         st.error("Please try refreshing the page or contact support if the issue persists.")
-    
-    return draw_data
 
-def commit_changes(gdf, draw_data):
-    if draw_data:
-        features_data = json.loads(draw_data)
-        new_features = features_data.get('features', [])
+def commit_changes(gdf, drawn_features):
+    if drawn_features and 'features' in drawn_features:
+        new_features = drawn_features['features']
         st.write(f"Committing {len(new_features)} new features.")
         for feature in new_features:
             try:
@@ -210,7 +226,6 @@ def download_edited_file(gdf):
         if file_format == "GeoJSON":
             output = gdf.to_json()
             filename = "edited_file.geojson"
-            mime_type = "application/json"
         else:  # Shapefile
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_shp = os.path.join(tmpdir, "edited_file.shp")
@@ -219,13 +234,11 @@ def download_edited_file(gdf):
                 with open(shp_zip, "rb") as f:
                     output = f.read()
             filename = "edited_file_shapefile.zip"
-            mime_type = "application/zip"
         
         st.download_button(
             label="Download Edited File",
             data=output,
-            file_name=filename,
-            mime_type=mime_type  # This line was corrected
+            file_name=filename
         )
     except Exception as e:
         st.error(f"An error occurred while preparing the file for download: {str(e)}")
@@ -239,7 +252,6 @@ def convert_and_download(gdf):
         if output_format == "GeoJSON":
             output = gdf.to_json()
             filename = "converted.geojson"
-            mime_type = "application/json"
         else:  # Shapefile
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_shp = os.path.join(tmpdir, "converted.shp")
@@ -248,13 +260,11 @@ def convert_and_download(gdf):
                 with open(shp_zip, "rb") as f:
                     output = f.read()
             filename = "converted_shapefile.zip"
-            mime_type = "application/zip"
         
         st.download_button(
             label="Download Converted File",
             data=output,
-            file_name=filename,
-            mime_type=mime_type
+            file_name=filename
         )
     except Exception as e:
         st.error(f"An error occurred while converting the file: {str(e)}")
